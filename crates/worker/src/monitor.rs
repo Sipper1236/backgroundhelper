@@ -1,11 +1,13 @@
 //! Worker resource monitoring.
 
-use bg_helper_protocol::resource::{ResourceUsage, HardwareCapability, PowerState, ThermalState, WorkerState};
-use sysinfo::{System, CpuRefreshKind, MemoryRefreshKind, RefreshKind};
-use uuid::Uuid;
+use bg_helper_protocol::resource::{
+    HardwareCapability, PowerState, ResourceUsage, ThermalState, WorkerState,
+};
 use chrono::Utc;
 use std::time::Duration;
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 /// Worker resource monitor using sysinfo.
 pub struct ResourceMonitor {
@@ -18,11 +20,11 @@ impl ResourceMonitor {
         let refresh_kind = RefreshKind::new()
             .with_cpu(CpuRefreshKind::new().with_cpu_usage())
             .with_memory(MemoryRefreshKind::new().with_ram().with_swap());
-        
+
         let mut system = System::new();
         system.refresh_cpu_usage();
         system.refresh_memory();
-        
+
         Self { system, worker_id }
     }
 
@@ -116,13 +118,13 @@ impl ResourceMonitor {
                 }
             }
         }
-        
+
         #[cfg(target_os = "windows")]
         {
             // Windows: use WMI or GetSystemPowerStatus
             // Placeholder for now
         }
-        
+
         PowerState::Ac
     }
 
@@ -136,10 +138,18 @@ impl ResourceMonitor {
         let mut features = Vec::new();
         #[cfg(target_arch = "x86_64")]
         {
-            if is_x86_feature_detected!("avx2") { features.push("avx2".into()); }
-            if is_x86_feature_detected!("avx") { features.push("avx".into()); }
-            if is_x86_feature_detected!("sse4.2") { features.push("sse4.2".into()); }
-            if is_x86_feature_detected!("fma") { features.push("fma".into()); }
+            if is_x86_feature_detected!("avx2") {
+                features.push("avx2".into());
+            }
+            if is_x86_feature_detected!("avx") {
+                features.push("avx".into());
+            }
+            if is_x86_feature_detected!("sse4.2") {
+                features.push("sse4.2".into());
+            }
+            if is_x86_feature_detected!("fma") {
+                features.push("fma".into());
+            }
         }
         #[cfg(target_arch = "aarch64")]
         {
@@ -174,7 +184,7 @@ mod tests {
     fn test_monitor_creation() {
         let mut monitor = ResourceMonitor::new(Uuid::new_v4());
         let usage = monitor.collect_usage();
-        
+
         assert!(usage.cpu_utilization_pct >= 0.0);
         assert!(usage.cpu_utilization_pct <= 100.0);
         assert!(usage.ram_used_bytes > 0);
@@ -184,10 +194,14 @@ mod tests {
     fn test_capabilities() {
         let mut monitor = ResourceMonitor::new(Uuid::new_v4());
         let caps = monitor.collect_capabilities();
-        
+
         assert!(!caps.is_empty());
-        let has_cpu = caps.iter().any(|c| matches!(c, HardwareCapability::Cpu { .. }));
-        let has_mem = caps.iter().any(|c| matches!(c, HardwareCapability::Memory { .. }));
+        let has_cpu = caps
+            .iter()
+            .any(|c| matches!(c, HardwareCapability::Cpu { .. }));
+        let has_mem = caps
+            .iter()
+            .any(|c| matches!(c, HardwareCapability::Memory { .. }));
         assert!(has_cpu);
         assert!(has_mem);
     }

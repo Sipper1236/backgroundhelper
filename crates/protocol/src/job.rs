@@ -1,10 +1,10 @@
 //! Job specifications, types, and state machine.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::validation::{Validatable, ValidationError};
 use chrono::{DateTime, Utc};
-use crate::validation::{ValidationError, Validatable};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Unique identifier for a job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -51,10 +51,7 @@ impl std::fmt::Display for WorkerId {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WorkloadType {
     /// Sum a range of integers: sum(start..end)
-    RangeSum {
-        start: u64,
-        end: u64,
-    },
+    RangeSum { start: u64, end: u64 },
     /// Compute a tile of a matrix multiplication: C = A * B
     MatrixTile {
         /// Matrix dimension (N x N)
@@ -63,10 +60,7 @@ pub enum WorkloadType {
         tile: TileSpec,
     },
     /// Count primes in a range
-    PrimeCount {
-        start: u64,
-        end: u64,
-    },
+    PrimeCount { start: u64, end: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -149,16 +143,22 @@ impl JobState {
             (Failed, _) => false,    // Terminal
             (Cancelled, _) => false, // Terminal
             (Expired, _) => false,   // Terminal
-            _ => false, // Exhaustive - all other transitions invalid
+            _ => false,              // Exhaustive - all other transitions invalid
         }
     }
 
     pub fn is_terminal(&self) -> bool {
-        matches!(self, JobState::Completed | JobState::Failed | JobState::Cancelled | JobState::Expired)
+        matches!(
+            self,
+            JobState::Completed | JobState::Failed | JobState::Cancelled | JobState::Expired
+        )
     }
 
     pub fn is_active(&self) -> bool {
-        matches!(self, JobState::Offered | JobState::Approved | JobState::Running)
+        matches!(
+            self,
+            JobState::Offered | JobState::Approved | JobState::Running
+        )
     }
 }
 
@@ -208,16 +208,23 @@ pub struct JobResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum JobOutput {
-    RangeSum { sum: u128 },
-    MatrixTile { tile_data: Vec<f64>, rows: usize, cols: usize },
-    PrimeCount { count: u64 },
+    RangeSum {
+        sum: u128,
+    },
+    MatrixTile {
+        tile_data: Vec<f64>,
+        rows: usize,
+        cols: usize,
+    },
+    PrimeCount {
+        count: u64,
+    },
 }
 
 impl JobOutput {
     /// Verify the result against expected output (for testing/simulation).
     pub fn verify(&self, expected: &JobOutput) -> bool {
-        std::mem::discriminant(self) == std::mem::discriminant(expected)
-            && self == expected
+        std::mem::discriminant(self) == std::mem::discriminant(expected) && self == expected
     }
 }
 
@@ -277,38 +284,56 @@ impl Job {
 impl Validatable for JobSpec {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.max_duration_secs == 0 {
-            return Err(ValidationError::InvalidField("max_duration_secs must be > 0".into()));
+            return Err(ValidationError::InvalidField(
+                "max_duration_secs must be > 0".into(),
+            ));
         }
         if self.estimated_cycles == 0 {
-            return Err(ValidationError::InvalidField("estimated_cycles must be > 0".into()));
+            return Err(ValidationError::InvalidField(
+                "estimated_cycles must be > 0".into(),
+            ));
         }
         // Validate workload-specific constraints
         match &self.workload {
             WorkloadType::RangeSum { start, end } => {
                 if start >= end {
-                    return Err(ValidationError::InvalidField("RangeSum: start must be < end".into()));
+                    return Err(ValidationError::InvalidField(
+                        "RangeSum: start must be < end".into(),
+                    ));
                 }
                 if end - start > 1_000_000_000 {
-                    return Err(ValidationError::InvalidField("RangeSum: range too large (max 1B)".into()));
+                    return Err(ValidationError::InvalidField(
+                        "RangeSum: range too large (max 1B)".into(),
+                    ));
                 }
             }
             WorkloadType::MatrixTile { size, tile } => {
                 if *size == 0 || *size > 10_000 {
-                    return Err(ValidationError::InvalidField("MatrixTile: size must be 1..10000".into()));
+                    return Err(ValidationError::InvalidField(
+                        "MatrixTile: size must be 1..10000".into(),
+                    ));
                 }
                 if tile.tile_size == 0 || tile.tile_size > *size {
-                    return Err(ValidationError::InvalidField("MatrixTile: invalid tile_size".into()));
+                    return Err(ValidationError::InvalidField(
+                        "MatrixTile: invalid tile_size".into(),
+                    ));
                 }
                 if tile.row >= *size || tile.col >= *size {
-                    return Err(ValidationError::InvalidField("MatrixTile: tile coordinates out of bounds".into()));
+                    return Err(ValidationError::InvalidField(
+                        "MatrixTile: tile coordinates out of bounds".into(),
+                    ));
                 }
             }
             WorkloadType::PrimeCount { start, end } => {
                 if start >= end {
-                    return Err(ValidationError::InvalidField("PrimeCount: start must be < end".into()));
+                    return Err(ValidationError::InvalidField(
+                        "PrimeCount: start must be < end".into(),
+                    ));
                 }
                 if end - start > 10_000_000 {
-                    return Err(ValidationError::InvalidField("PrimeCount: range too large (max 10M)".into()));
+                    return Err(ValidationError::InvalidField(
+                        "PrimeCount: range too large (max 10M)".into(),
+                    ));
                 }
             }
         }

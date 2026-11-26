@@ -1,21 +1,21 @@
 //! Worker runtime - main event loop and coordination.
 
+use crate::config::{ConfigManager, RuntimeConfig, WorkerConfig};
+use crate::enrollment::EnrollmentManager;
+use crate::executor::{ExecutionError, JobExecutor};
+use crate::monitor::{run_monitor, ResourceMonitor};
+use crate::ui::{CurrentJobInfo, OwnerStatus, TextUI};
+use bg_helper_protocol::{
+    enrollment::{EnrollmentRequest, EnrollmentResponse},
+    job::{JobId, JobResult, JobSpec, WorkerId},
+    resource::{ResourceLimits, ResourceUsage, WorkerState},
+};
+use chrono::Utc;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, mpsc};
-use bg_helper_protocol::{
-    job::{JobSpec, JobResult, JobId, WorkerId},
-    resource::{ResourceUsage, WorkerState, ResourceLimits},
-    enrollment::{EnrollmentRequest, EnrollmentResponse},
-};
-use crate::config::{ConfigManager, WorkerConfig, RuntimeConfig};
-use crate::enrollment::EnrollmentManager;
-use crate::monitor::{ResourceMonitor, run_monitor};
-use crate::executor::{JobExecutor, ExecutionError};
-use crate::ui::{OwnerStatus, CurrentJobInfo, TextUI};
+use tokio::sync::{mpsc, RwLock};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use chrono::Utc;
-use tracing::{info, debug, warn, error};
 
 /// Worker runtime state.
 pub struct WorkerRuntime {
@@ -36,12 +36,12 @@ impl WorkerRuntime {
     pub async fn new() -> Result<Self, String> {
         let config_manager = ConfigManager::new().await?;
         let config = config_manager.get().await;
-        
+
         let worker_id = config.worker_id.unwrap_or_else(Uuid::new_v4);
         let monitor = ResourceMonitor::new(worker_id);
         let enrollment_manager = EnrollmentManager::new(config.clone());
         let executor = JobExecutor::new(worker_id, config.limits.clone());
-        
+
         Ok(Self {
             config_manager,
             enrollment_manager,
@@ -59,10 +59,10 @@ impl WorkerRuntime {
     /// Start the worker runtime.
     pub async fn start(&mut self) -> Result<(), String> {
         info!("Starting BackgroundHelper worker");
-        
+
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
-        
+
         // Load runtime config if enrolled
         let config = self.config_manager.get().await;
         if let Some(rt_config) = RuntimeConfig::from_config(&config) {
@@ -74,20 +74,26 @@ impl WorkerRuntime {
         } else {
             info!("Worker not enrolled yet");
         }
-        
+
         // Start resource monitor
         let (usage_tx, mut usage_rx) = mpsc::unbounded_channel();
-        let worker_id_for_monitor = self.runtime_config.read().await.as_ref().map(|c| c.worker_id).unwrap_or_else(Uuid::new_v4);
+        let worker_id_for_monitor = self
+            .runtime_config
+            .read()
+            .await
+            .as_ref()
+            .map(|c| c.worker_id)
+            .unwrap_or_else(Uuid::new_v4);
         let monitor = ResourceMonitor::new(worker_id_for_monitor);
         tokio::spawn(run_monitor(monitor, Duration::from_secs(5), usage_tx));
-        
+
         // Main event loop
         let _runtime_config = self.runtime_config.clone();
         let _current_job = self.current_job.clone();
         let _current_job_info = self.current_job_info.clone();
         let _state = self.state.clone();
         let _sharing_enabled = self.sharing_enabled.clone();
-        
+
         // For now, just run the monitor loop
         tokio::select! {
             _ = async {
@@ -100,7 +106,7 @@ impl WorkerRuntime {
                 info!("Shutdown signal received");
             }
         }
-        
+
         Ok(())
     }
 
@@ -117,17 +123,21 @@ impl WorkerRuntime {
     /// Enroll with coordinator using invitation code.
     pub async fn enroll(&mut self, invitation_code: &str) -> Result<EnrollmentResponse, String> {
         let response = self.enrollment_manager.enroll(invitation_code).await?;
-        
+
         if response.accepted {
-            if let (Some(worker_id), Some(limits)) = (response.worker_id, response.assigned_limits.clone()) {
+            if let (Some(worker_id), Some(limits)) =
+                (response.worker_id, response.assigned_limits.clone())
+            {
                 // Update config
-                self.config_manager.update(|c| {
-                    c.worker_id = Some(worker_id);
-                    c.limits = limits.clone();
-                    c.coordinator_url = Some("http://localhost:8080".into()); // Would come from invitation
-                    c.enrollment_token = Some("token".into()); // Would come from response
-                }).await?;
-                
+                self.config_manager
+                    .update(|c| {
+                        c.worker_id = Some(worker_id);
+                        c.limits = limits.clone();
+                        c.coordinator_url = Some("http://localhost:8080".into()); // Would come from invitation
+                        c.enrollment_token = Some("token".into()); // Would come from response
+                    })
+                    .await?;
+
                 // Update runtime config
                 let rt_config = RuntimeConfig {
                     worker_id,
@@ -139,14 +149,14 @@ impl WorkerRuntime {
                 *self.runtime_config.write().await = Some(rt_config);
                 *self.state.write().await = WorkerState::Online;
                 *self.sharing_enabled.write().await = true;
-                
+
                 // Recreate executor with new limits
                 self.executor = JobExecutor::new(worker_id, self.config_manager.get().await.limits);
-                
+
                 info!("Enrollment successful: {}", worker_id);
             }
         }
-        
+
         Ok(response)
     }
 
@@ -181,18 +191,18 @@ impl WorkerRuntime {
     /// Execute a job (called by coordinator via message passing).
     pub async fn execute_job(&self, job_spec: JobSpec) -> Result<JobResult, ExecutionError> {
         let job_id = job_spec.id;
-        
+
         // Update state
         *self.current_job.write().await = Some(job_id);
         *self.state.write().await = WorkerState::Busy;
-        
+
         // Create job info for UI
         let workload_type = match &job_spec.workload {
             bg_helper_protocol::job::WorkloadType::RangeSum { .. } => "range_sum",
             bg_helper_protocol::job::WorkloadType::MatrixTile { .. } => "matrix_tile",
             bg_helper_protocol::job::WorkloadType::PrimeCount { .. } => "prime_count",
         };
-        
+
         *self.current_job_info.write().await = Some(CurrentJobInfo {
             job_id: job_id.to_string(),
             workload_type: workload_type.into(),
@@ -200,15 +210,15 @@ impl WorkerRuntime {
             elapsed: Duration::from_secs(0),
             estimated_remaining: Some(Duration::from_secs(job_spec.max_duration_secs as u64)),
         });
-        
+
         // Execute
         let result = self.executor.execute(job_spec).await;
-        
+
         // Clear current job
         *self.current_job.write().await = None;
         *self.current_job_info.write().await = None;
         *self.state.write().await = WorkerState::Idle;
-        
+
         result
     }
 
@@ -220,7 +230,7 @@ impl WorkerRuntime {
         let sharing = *self.sharing_enabled.read().await;
         let current_job = self.current_job.read().await.clone();
         let current_job_info = self.current_job_info.read().await.clone();
-        
+
         OwnerStatus {
             worker_name: config.worker_name,
             current_job: current_job_info,
@@ -257,12 +267,12 @@ impl Clone for JobExecutor {
 pub async fn run_service() -> Result<(), String> {
     let mut runtime = WorkerRuntime::new().await?;
     runtime.start().await?;
-    
+
     // In a real service, this would run until shutdown signal
     // For now, just print status and exit
     let status = runtime.get_compact_status().await;
     println!("{}", status);
-    
+
     runtime.stop().await;
     Ok(())
 }
@@ -270,7 +280,7 @@ pub async fn run_service() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::job::{JobSpec, WorkloadType, JobPriority};
+    use bg_helper_protocol::job::{JobPriority, JobSpec, WorkloadType};
     use bg_helper_protocol::resource::ResourceLimits;
 
     #[tokio::test]
@@ -283,12 +293,12 @@ mod tests {
     #[tokio::test]
     async fn test_pause_resume() {
         let mut runtime = WorkerRuntime::new().await.unwrap();
-        
+
         // Can't resume if not enrolled
         runtime.resume_sharing().await;
         let status = runtime.get_owner_status().await;
         assert!(!status.sharing_active);
-        
+
         // Pause should work regardless
         runtime.pause_sharing().await;
         let status = runtime.get_owner_status().await;

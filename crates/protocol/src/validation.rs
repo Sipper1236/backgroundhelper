@@ -1,7 +1,7 @@
 //! Validation traits and errors.
 
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 /// Validation error types.
 #[derive(Debug, Clone, Error, Serialize, Deserialize)]
@@ -35,18 +35,33 @@ pub fn validate_json_schema<T: Validatable + ?Sized>(value: &T) -> Result<(), Va
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::job::{JobSpec, WorkloadType, JobPriority};
+    use crate::job::{JobPriority, JobSpec, WorkloadType};
     use crate::resource::ResourceLimits;
 
     #[test]
     fn test_job_spec_validation() {
-        let spec = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 100 }, JobPriority::Normal, 300);
+        let spec = JobSpec::new(
+            WorkloadType::RangeSum { start: 0, end: 100 },
+            JobPriority::Normal,
+            300,
+        );
         assert!(spec.validate().is_ok());
 
-        let spec = JobSpec::new(WorkloadType::RangeSum { start: 100, end: 0 }, JobPriority::Normal, 300);
+        let spec = JobSpec::new(
+            WorkloadType::RangeSum { start: 100, end: 0 },
+            JobPriority::Normal,
+            300,
+        );
         assert!(spec.validate().is_err());
 
-        let spec = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 2_000_000_000 }, JobPriority::Normal, 300);
+        let spec = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 2_000_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
         assert!(spec.validate().is_err());
     }
 

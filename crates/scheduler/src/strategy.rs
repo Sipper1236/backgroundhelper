@@ -1,7 +1,7 @@
 //! Placement strategies for job scheduling.
 
-use bg_helper_protocol::job::JobSpec;
 use crate::WorkerSnapshot;
+use bg_helper_protocol::job::JobSpec;
 
 /// Placement strategy for scheduling decisions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -31,7 +31,7 @@ impl PlacementStrategy {
     fn score_best_fit(&self, job: &JobSpec, worker: &WorkerSnapshot) -> f64 {
         // Score based on how well the job fits the available resources
         let mut score: f64 = 0.0;
-        
+
         // CPU fit
         if let Some(max_cores) = worker.limits.cpu_max_cores {
             let available_cores = max_cores as f64 - worker.usage.cpu_cores_used as f64;
@@ -46,7 +46,7 @@ impl PlacementStrategy {
                 }
             }
         }
-        
+
         // RAM fit
         if let Some(max_ram) = worker.limits.ram_max_workload_bytes {
             let available_ram = max_ram.saturating_sub(worker.usage.ram_used_bytes) as f64;
@@ -60,16 +60,16 @@ impl PlacementStrategy {
                 }
             }
         }
-        
+
         score
     }
 
     fn score_least_loaded(&self, job: &JobSpec, worker: &WorkerSnapshot) -> f64 {
         // Prefer workers with lowest current utilization
         let cpu_load = worker.usage.cpu_utilization_pct as f64 / 100.0;
-        let ram_load = worker.usage.ram_used_bytes as f64 / 
-            (worker.usage.ram_used_bytes + worker.usage.ram_available_bytes).max(1) as f64;
-        
+        let ram_load = worker.usage.ram_used_bytes as f64
+            / (worker.usage.ram_used_bytes + worker.usage.ram_available_bytes).max(1) as f64;
+
         let avg_load = (cpu_load + ram_load) / 2.0;
         100.0 * (1.0 - avg_load)
     }
@@ -77,27 +77,36 @@ impl PlacementStrategy {
     fn score_hardware_match(&self, job: &JobSpec, worker: &WorkerSnapshot) -> f64 {
         // Check if worker has specific hardware needed for job
         let mut score = 0.0;
-        
+
         match &job.workload {
             bg_helper_protocol::job::WorkloadType::MatrixTile { .. } => {
                 // Matrix work benefits from AVX2
                 if worker.capabilities.iter().any(|c| {
-                    matches!(c, bg_helper_protocol::resource::HardwareCapability::Cpu { features, .. } 
-                        if features.iter().any(|f| f == "avx2"))
+                    matches!(
+                        c,
+                        bg_helper_protocol::resource::HardwareCapability::Cpu { features, .. }
+                            if features.iter().any(|f| f == "avx2")
+                    )
                 }) {
                     score += 200.0;
                 }
             }
             bg_helper_protocol::job::WorkloadType::PrimeCount { .. } => {
                 // Prime counting benefits from many cores
-                if let Some(bg_helper_protocol::resource::HardwareCapability::Cpu { cores, .. }) = 
-                    worker.capabilities.iter().find(|c| matches!(c, bg_helper_protocol::resource::HardwareCapability::Cpu { .. })) {
+                if let Some(bg_helper_protocol::resource::HardwareCapability::Cpu {
+                    cores, ..
+                }) = worker.capabilities.iter().find(|c| {
+                    matches!(
+                        c,
+                        bg_helper_protocol::resource::HardwareCapability::Cpu { .. }
+                    )
+                }) {
                     score += (*cores as f64).min(64.0) * 5.0;
                 }
             }
             _ => {}
         }
-        
+
         score
     }
 
@@ -111,7 +120,9 @@ impl PlacementStrategy {
 fn estimate_job_cores(job: &JobSpec) -> f32 {
     match &job.workload {
         bg_helper_protocol::job::WorkloadType::RangeSum { .. } => 1.0,
-        bg_helper_protocol::job::WorkloadType::MatrixTile { size, tile } => (*size / tile.tile_size) as f32,
+        bg_helper_protocol::job::WorkloadType::MatrixTile { size, tile } => {
+            (*size / tile.tile_size) as f32
+        }
         bg_helper_protocol::job::WorkloadType::PrimeCount { .. } => 1.0,
     }
 }
@@ -119,9 +130,11 @@ fn estimate_job_cores(job: &JobSpec) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::job::{JobSpec, WorkloadType, JobPriority};
-    use bg_helper_protocol::resource::{ResourceLimits, ResourceUsage, WorkerState, HardwareCapability, PowerState};
     use crate::WorkerSnapshot;
+    use bg_helper_protocol::job::{JobPriority, JobSpec, WorkloadType};
+    use bg_helper_protocol::resource::{
+        HardwareCapability, PowerState, ResourceLimits, ResourceUsage, WorkerState,
+    };
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -166,10 +179,17 @@ mod tests {
         let strategy = PlacementStrategy::BestFit;
         let worker_id = Uuid::new_v4();
         let worker = test_worker(worker_id, vec!["avx2".into()]);
-        
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
+
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
         let score = strategy.score_worker(&job, &worker);
-        
+
         assert!(score > 0.0);
     }
 
@@ -177,18 +197,26 @@ mod tests {
     fn test_hardware_match_avx2() {
         let strategy = PlacementStrategy::HardwareMatch;
         let worker_id = Uuid::new_v4();
-        
+
         let worker_with_avx2 = test_worker(worker_id, vec!["avx2".into()]);
         let worker_without_avx2 = test_worker(Uuid::new_v4(), vec![]);
-        
-        let job = JobSpec::new(WorkloadType::MatrixTile { 
-            size: 1000, 
-            tile: bg_helper_protocol::job::TileSpec { row: 0, col: 0, tile_size: 100 } 
-        }, JobPriority::Normal, 300);
-        
+
+        let job = JobSpec::new(
+            WorkloadType::MatrixTile {
+                size: 1000,
+                tile: bg_helper_protocol::job::TileSpec {
+                    row: 0,
+                    col: 0,
+                    tile_size: 100,
+                },
+            },
+            JobPriority::Normal,
+            300,
+        );
+
         let score_with = strategy.score_worker(&job, &worker_with_avx2);
         let score_without = strategy.score_worker(&job, &worker_without_avx2);
-        
+
         assert!(score_with > score_without);
     }
 
@@ -196,18 +224,25 @@ mod tests {
     fn test_least_loaded() {
         let strategy = PlacementStrategy::LeastLoaded;
         let worker_id = Uuid::new_v4();
-        
+
         let mut worker_low = test_worker(worker_id, vec![]);
         worker_low.usage.cpu_utilization_pct = 10.0;
-        
+
         let mut worker_high = test_worker(Uuid::new_v4(), vec![]);
         worker_high.usage.cpu_utilization_pct = 80.0;
-        
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
-        
+
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
+
         let score_low = strategy.score_worker(&job, &worker_low);
         let score_high = strategy.score_worker(&job, &worker_high);
-        
+
         assert!(score_low > score_high);
     }
 }

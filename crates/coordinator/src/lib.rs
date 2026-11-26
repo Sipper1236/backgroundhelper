@@ -1,11 +1,11 @@
 //! Coordinator - job state and dashboard interface.
 
-pub mod state;
-pub mod registry;
 pub mod api;
+pub mod registry;
 pub mod simulation;
+pub mod state;
 
-pub use state::*;
-pub use registry::*;
 pub use api::*;
+pub use registry::*;
 pub use simulation::*;
+pub use state::*;

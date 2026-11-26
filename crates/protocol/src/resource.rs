@@ -1,10 +1,10 @@
 //! Resource descriptions, limits, and hardware capabilities.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use crate::validation::{Validatable, ValidationError};
 use chrono::{DateTime, Utc};
-use crate::validation::{ValidationError, Validatable};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Hardware capability advertised by a worker.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -242,7 +242,8 @@ impl SharingSchedule {
         use chrono::TimeZone;
         // Parse timezone as offset in hours (e.g., "UTC", "-5", "+8")
         let offset_hours = self.timezone.parse::<i32>().unwrap_or(0);
-        let tz = chrono::FixedOffset::east_opt(offset_hours * 3600).unwrap_or_else(|| chrono::FixedOffset::east_opt(0).unwrap());
+        let tz = chrono::FixedOffset::east_opt(offset_hours * 3600)
+            .unwrap_or_else(|| chrono::FixedOffset::east_opt(0).unwrap());
         let now = Utc::now().with_timezone(&tz);
         self.allowed_windows.iter().any(|w| w.contains(&now))
     }
@@ -265,31 +266,43 @@ impl Validatable for ResourceLimits {
     fn validate(&self) -> Result<(), ValidationError> {
         if let Some(pct) = self.cpu_max_utilization_pct {
             if pct == 0 || pct > 100 {
-                return Err(ValidationError::InvalidField("cpu_max_utilization_pct must be 1..100".into()));
+                return Err(ValidationError::InvalidField(
+                    "cpu_max_utilization_pct must be 1..100".into(),
+                ));
             }
         }
         if let Some(pct) = self.gpu_max_memory_pct {
             if pct == 0 || pct > 100 {
-                return Err(ValidationError::InvalidField("gpu_max_memory_pct must be 1..100".into()));
+                return Err(ValidationError::InvalidField(
+                    "gpu_max_memory_pct must be 1..100".into(),
+                ));
             }
         }
         if let Some(pct) = self.power.min_battery_pct {
             if pct == 0 || pct > 100 {
-                return Err(ValidationError::InvalidField("min_battery_pct must be 1..100".into()));
+                return Err(ValidationError::InvalidField(
+                    "min_battery_pct must be 1..100".into(),
+                ));
             }
         }
         if let Some(schedule) = &self.schedule {
             for window in &schedule.allowed_windows {
                 for day in &window.days {
                     if *day > 6 {
-                        return Err(ValidationError::InvalidField("schedule days must be 0..6".into()));
+                        return Err(ValidationError::InvalidField(
+                            "schedule days must be 0..6".into(),
+                        ));
                     }
                 }
                 if window.start_hour > 23 || window.end_hour > 23 {
-                    return Err(ValidationError::InvalidField("schedule hours must be 0..23".into()));
+                    return Err(ValidationError::InvalidField(
+                        "schedule hours must be 0..23".into(),
+                    ));
                 }
                 if window.start_minute > 59 || window.end_minute > 59 {
-                    return Err(ValidationError::InvalidField("schedule minutes must be 0..59".into()));
+                    return Err(ValidationError::InvalidField(
+                        "schedule minutes must be 0..59".into(),
+                    ));
                 }
             }
         }
@@ -308,11 +321,15 @@ impl Validatable for WorkerSnapshot {
 impl Validatable for ResourceUsage {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.cpu_utilization_pct < 0.0 || self.cpu_utilization_pct > 100.0 {
-            return Err(ValidationError::InvalidField("cpu_utilization_pct must be 0..100".into()));
+            return Err(ValidationError::InvalidField(
+                "cpu_utilization_pct must be 0..100".into(),
+            ));
         }
         if let Some(pct) = self.gpu_utilization_pct {
             if pct < 0.0 || pct > 100.0 {
-                return Err(ValidationError::InvalidField("gpu_utilization_pct must be 0..100".into()));
+                return Err(ValidationError::InvalidField(
+                    "gpu_utilization_pct must be 0..100".into(),
+                ));
             }
         }
         Ok(())

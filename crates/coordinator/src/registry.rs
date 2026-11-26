@@ -1,16 +1,16 @@
 //! Worker registry and enrollment management.
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use bg_helper_protocol::{
-    enrollment::{InvitationCode, EnrollmentRequest, EnrollmentResponse, CoordinatorInfo},
+    enrollment::{CoordinatorInfo, EnrollmentRequest, EnrollmentResponse, InvitationCode},
     resource::{ResourceLimits, WorkerSnapshot},
     validation::Validatable,
 };
-use uuid::Uuid;
-use chrono::{DateTime, Utc, Duration};
+use chrono::{DateTime, Duration, Utc};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 /// Worker registry for managing enrollments and invitations.
 pub struct WorkerRegistry {
@@ -50,8 +50,11 @@ impl WorkerRegistry {
             max_workers,
             default_limits: self.default_limits.clone(),
         };
-        
-        self.invitations.write().await.insert(code, invitation.clone());
+
+        self.invitations
+            .write()
+            .await
+            .insert(code, invitation.clone());
         invitation
     }
 
@@ -107,8 +110,9 @@ impl WorkerRegistry {
         info!("Enrolling worker {} ({})", request.worker_name, worker_id);
 
         // Merge limits (local takes precedence for restrictions)
-        let assigned_limits = bg_helper_policy::merge_limits(&request.proposed_limits, &invitation.default_limits);
-        
+        let assigned_limits =
+            bg_helper_policy::merge_limits(&request.proposed_limits, &invitation.default_limits);
+
         if let Err(e) = assigned_limits.validate() {
             return EnrollmentResponse {
                 accepted: false,
@@ -163,7 +167,12 @@ impl WorkerRegistry {
     }
 
     /// Update worker status and usage.
-    pub async fn update_worker(&self, worker_id: Uuid, usage: bg_helper_protocol::resource::ResourceUsage, state: bg_helper_protocol::resource::WorkerState) -> bool {
+    pub async fn update_worker(
+        &self,
+        worker_id: Uuid,
+        usage: bg_helper_protocol::resource::ResourceUsage,
+        state: bg_helper_protocol::resource::WorkerState,
+    ) -> bool {
         let mut workers = self.workers.write().await;
         if let Some(worker) = workers.get_mut(&worker_id) {
             worker.usage = usage;
@@ -214,8 +223,8 @@ fn generate_invitation_code() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::resource::{ResourceLimits, HardwareCapability};
     use bg_helper_protocol::enrollment::EnrollmentRequest;
+    use bg_helper_protocol::resource::{HardwareCapability, ResourceLimits};
     use uuid::Uuid;
 
     #[tokio::test]
@@ -228,10 +237,12 @@ mod tests {
             supported_workloads: vec![],
             protocol_version: "0.1.0".into(),
         };
-        
+
         let registry = WorkerRegistry::new(coordinator_info, ResourceLimits::default());
-        let invitation = registry.create_invitation("Test Cluster".into(), 24, Some(10)).await;
-        
+        let invitation = registry
+            .create_invitation("Test Cluster".into(), 24, Some(10))
+            .await;
+
         assert_eq!(invitation.cluster_name, "Test Cluster");
         assert!(invitation.is_valid());
         assert_eq!(invitation.max_workers, Some(10));
@@ -247,10 +258,12 @@ mod tests {
             supported_workloads: vec![],
             protocol_version: "0.1.0".into(),
         };
-        
+
         let registry = WorkerRegistry::new(coordinator_info, ResourceLimits::default());
-        let invitation = registry.create_invitation("Test Cluster".into(), 24, Some(10)).await;
-        
+        let invitation = registry
+            .create_invitation("Test Cluster".into(), 24, Some(10))
+            .await;
+
         let request = EnrollmentRequest {
             invitation_code: invitation.code.clone(),
             worker_name: "Test Worker".into(),
@@ -264,9 +277,9 @@ mod tests {
             proposed_limits: ResourceLimits::default(),
             public_key: None,
         };
-        
+
         let response = registry.enroll_worker(request).await;
-        
+
         assert!(response.accepted);
         assert!(response.worker_id.is_some());
         assert!(response.assigned_limits.is_some());
@@ -282,9 +295,9 @@ mod tests {
             supported_workloads: vec![],
             protocol_version: "0.1.0".into(),
         };
-        
+
         let registry = WorkerRegistry::new(coordinator_info, ResourceLimits::default());
-        
+
         let request = EnrollmentRequest {
             invitation_code: "INVALID-CODE".into(),
             worker_name: "Test Worker".into(),
@@ -298,9 +311,9 @@ mod tests {
             proposed_limits: ResourceLimits::default(),
             public_key: None,
         };
-        
+
         let response = registry.enroll_worker(request).await;
-        
+
         assert!(!response.accepted);
         assert!(response.error.is_some());
     }

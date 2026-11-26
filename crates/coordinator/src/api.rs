@@ -1,24 +1,24 @@
 //! Coordinator REST API for dashboard and administration.
 
-use std::sync::Arc;
+use crate::registry::WorkerRegistry;
+use crate::state::CoordinatorState;
 use axum::{
-    extract::{State, Path, Query, Json},
+    extract::{Json, Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json as JsonResponse},
     routing::{get, post},
     Router,
 };
 use bg_helper_protocol::{
-    job::{JobSpec, JobId, JobPriority, WorkloadType, Job},
+    enrollment::{CoordinatorInfo, EnrollmentRequest, EnrollmentResponse},
+    job::{Job, JobId, JobPriority, JobSpec, WorkloadType},
     resource::{WorkerSnapshot, WorkerState},
-    enrollment::{EnrollmentRequest, EnrollmentResponse, CoordinatorInfo},
 };
-use crate::state::CoordinatorState;
-use crate::registry::WorkerRegistry;
-use uuid::Uuid;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::{info, debug};
+use std::sync::Arc;
+use tracing::{debug, info};
+use uuid::Uuid;
 
 /// Shared state for API handlers.
 #[derive(Clone)]
@@ -83,7 +83,10 @@ async fn get_worker(
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<JsonResponse<WorkerSnapshot>, StatusCode> {
-    state.coordinator.get_worker(id).await
+    state
+        .coordinator
+        .get_worker(id)
+        .await
         .map(JsonResponse)
         .ok_or(StatusCode::NOT_FOUND)
 }
@@ -93,9 +96,18 @@ async fn revoke_worker(
     State(state): State<ApiState>,
     Path(id): Path<Uuid>,
 ) -> Result<JsonResponse<RevokeResponse>, StatusCode> {
-    state.coordinator.revoke_worker(id, bg_helper_protocol::enrollment::RevocationReason::AdminRevoked).await
+    state
+        .coordinator
+        .revoke_worker(
+            id,
+            bg_helper_protocol::enrollment::RevocationReason::AdminRevoked,
+        )
+        .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    Ok(JsonResponse(RevokeResponse { success: true, worker_id: id }))
+    Ok(JsonResponse(RevokeResponse {
+        success: true,
+        worker_id: id,
+    }))
 }
 
 #[derive(Serialize)]
@@ -122,13 +134,26 @@ async fn submit_job(
     State(state): State<ApiState>,
     Json(request): Json<SubmitJobRequest>,
 ) -> Result<JsonResponse<SubmitJobResponse>, (StatusCode, JsonResponse<ErrorResponse>)> {
-    let spec = request.to_job_spec()
-        .map_err(|e| (StatusCode::BAD_REQUEST, JsonResponse(ErrorResponse { error: e })))?;
-    
-    let job_id = state.coordinator.submit_job(spec).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, JsonResponse(ErrorResponse { error: e.to_string() })))?;
-    
-    Ok(JsonResponse(SubmitJobResponse { job_id, status: "queued".into() }))
+    let spec = request.to_job_spec().map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            JsonResponse(ErrorResponse { error: e }),
+        )
+    })?;
+
+    let job_id = state.coordinator.submit_job(spec).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            JsonResponse(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
+
+    Ok(JsonResponse(SubmitJobResponse {
+        job_id,
+        status: "queued".into(),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -147,49 +172,69 @@ impl SubmitJobRequest {
             Some("critical") => JobPriority::Critical,
             _ => JobPriority::Normal,
         };
-        
+
         let max_duration = self.max_duration_secs.unwrap_or(300);
-        
+
         let workload = match self.workload_type.as_str() {
             "range_sum" => {
-                let start = self.parameters.get("start")
+                let start = self
+                    .parameters
+                    .get("start")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing start parameter")?;
-                let end = self.parameters.get("end")
+                let end = self
+                    .parameters
+                    .get("end")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing end parameter")?;
                 WorkloadType::RangeSum { start, end }
             }
             "matrix_tile" => {
-                let size = self.parameters.get("size")
+                let size = self
+                    .parameters
+                    .get("size")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing size parameter")? as usize;
-                let tile = self.parameters.get("tile")
+                let tile = self
+                    .parameters
+                    .get("tile")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing tile parameter")? as usize;
-                let row = self.parameters.get("row")
+                let row = self
+                    .parameters
+                    .get("row")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing row parameter")? as usize;
-                let col = self.parameters.get("col")
+                let col = self
+                    .parameters
+                    .get("col")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing col parameter")? as usize;
-                WorkloadType::MatrixTile { 
-                    size, 
-                    tile: bg_helper_protocol::job::TileSpec { row, col, tile_size: tile }
+                WorkloadType::MatrixTile {
+                    size,
+                    tile: bg_helper_protocol::job::TileSpec {
+                        row,
+                        col,
+                        tile_size: tile,
+                    },
                 }
             }
             "prime_count" => {
-                let start = self.parameters.get("start")
+                let start = self
+                    .parameters
+                    .get("start")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing start parameter")?;
-                let end = self.parameters.get("end")
+                let end = self
+                    .parameters
+                    .get("end")
                     .and_then(|v| v.as_u64())
                     .ok_or("Missing end parameter")?;
                 WorkloadType::PrimeCount { start, end }
             }
             _ => return Err(format!("Unknown workload type: {}", self.workload_type)),
         };
-        
+
         Ok(JobSpec::new(workload, priority, max_duration))
     }
 }
@@ -205,7 +250,10 @@ async fn get_job(
     State(state): State<ApiState>,
     Path(id): Path<JobId>,
 ) -> Result<JsonResponse<Job>, StatusCode> {
-    state.coordinator.get_job(id).await
+    state
+        .coordinator
+        .get_job(id)
+        .await
         .map(JsonResponse)
         .ok_or(StatusCode::NOT_FOUND)
 }
@@ -229,7 +277,11 @@ struct CancelResponse {
 /// Get queue status.
 async fn queue_status(State(state): State<ApiState>) -> JsonResponse<QueueStatusResponse> {
     let (queued, assigned, completed) = state.coordinator.get_queue_status().await;
-    JsonResponse(QueueStatusResponse { queued, assigned, completed })
+    JsonResponse(QueueStatusResponse {
+        queued,
+        assigned,
+        completed,
+    })
 }
 
 #[derive(Serialize)]
@@ -253,11 +305,14 @@ async fn create_invitation(
     State(state): State<ApiState>,
     Json(request): Json<CreateInvitationRequest>,
 ) -> JsonResponse<bg_helper_protocol::enrollment::InvitationCode> {
-    let invitation = state.registry.create_invitation(
-        request.cluster_name,
-        request.expires_in_hours.unwrap_or(24),
-        request.max_workers,
-    ).await;
+    let invitation = state
+        .registry
+        .create_invitation(
+            request.cluster_name,
+            request.expires_in_hours.unwrap_or(24),
+            request.max_workers,
+        )
+        .await;
     JsonResponse(invitation)
 }
 

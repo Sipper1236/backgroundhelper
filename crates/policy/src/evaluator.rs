@@ -1,9 +1,9 @@
 //! Policy evaluation logic - determines if jobs can run given current state.
 
 use bg_helper_protocol::{
-    job::{JobSpec, WorkloadType, JobPriority},
-    resource::{ResourceLimits, ResourceUsage, WorkerState, PowerState, SharingSchedule},
-    validation::{ValidationError, Validatable},
+    job::{JobPriority, JobSpec, WorkloadType},
+    resource::{PowerState, ResourceLimits, ResourceUsage, SharingSchedule, WorkerState},
+    validation::{Validatable, ValidationError},
 };
 use std::collections::HashMap;
 
@@ -42,7 +42,10 @@ impl PolicyEvaluator {
     ) -> PolicyDecision {
         // Worker must be in acceptable state
         if !worker_state.can_accept_work() {
-            return PolicyDecision::Reject(format!("Worker state {:?} cannot accept work", worker_state));
+            return PolicyDecision::Reject(format!(
+                "Worker state {:?} cannot accept work",
+                worker_state
+            ));
         }
 
         // Check schedule
@@ -107,7 +110,7 @@ impl PolicyEvaluator {
         if let Some(max_pct) = limits.cpu_max_utilization_pct {
             if usage.cpu_utilization_pct > max_pct as f32 {
                 return PolicyDecision::Reject(format!(
-                    "CPU utilization {:.1}% exceeds limit {}%", 
+                    "CPU utilization {:.1}% exceeds limit {}%",
                     usage.cpu_utilization_pct, max_pct
                 ));
             }
@@ -116,7 +119,7 @@ impl PolicyEvaluator {
         if let Some(max_bytes) = limits.ram_max_workload_bytes {
             if usage.ram_used_bytes > max_bytes {
                 return PolicyDecision::Reject(format!(
-                    "RAM usage {} bytes exceeds limit {}", 
+                    "RAM usage {} bytes exceeds limit {}",
                     usage.ram_used_bytes, max_bytes
                 ));
             }
@@ -135,7 +138,7 @@ impl PolicyEvaluator {
         if let Some(max_cores) = limits.cpu_max_cores {
             let available_cores = max_cores as f32 - usage.cpu_cores_used;
             let job_cores_estimate = Self::estimate_job_cores(job);
-            
+
             if job_cores_estimate > available_cores {
                 if available_cores >= 1.0 {
                     return Some(PolicyDecision::AllowWithReduction(ResourceReduction {
@@ -145,9 +148,10 @@ impl PolicyEvaluator {
                         ram_bytes: None,
                     }));
                 }
-                return Some(PolicyDecision::Reject(
-                    format!("Insufficient CPU cores: need ~{}, available {}", job_cores_estimate, available_cores)
-                ));
+                return Some(PolicyDecision::Reject(format!(
+                    "Insufficient CPU cores: need ~{}, available {}",
+                    job_cores_estimate, available_cores
+                )));
             }
         }
 
@@ -155,7 +159,7 @@ impl PolicyEvaluator {
         if let Some(max_pct) = limits.cpu_max_utilization_pct {
             let current_pct = usage.cpu_utilization_pct;
             let job_pct_estimate = Self::estimate_job_cpu_pct(job);
-            
+
             if current_pct + job_pct_estimate > max_pct as f32 {
                 let remaining = (max_pct as f32 - current_pct).max(0.0);
                 if remaining >= 10.0 {
@@ -166,10 +170,10 @@ impl PolicyEvaluator {
                         ram_bytes: None,
                     }));
                 }
-                return Some(PolicyDecision::Reject(
-                    format!("CPU utilization would exceed limit: current {:.1}%, job ~{:.1}%, max {}%", 
-                        current_pct, job_pct_estimate, max_pct)
-                ));
+                return Some(PolicyDecision::Reject(format!(
+                    "CPU utilization would exceed limit: current {:.1}%, job ~{:.1}%, max {}%",
+                    current_pct, job_pct_estimate, max_pct
+                )));
             }
         }
 
@@ -185,9 +189,10 @@ impl PolicyEvaluator {
         if let Some(max_bytes) = limits.ram_max_workload_bytes {
             let available = max_bytes.saturating_sub(usage.ram_used_bytes);
             let job_mem = job.estimated_memory_bytes;
-            
+
             if job_mem > available {
-                if available >= 100_000_000 { // At least 100MB
+                if available >= 100_000_000 {
+                    // At least 100MB
                     return Some(PolicyDecision::AllowWithReduction(ResourceReduction {
                         cpu_cores: None,
                         cpu_utilization_pct: None,
@@ -195,9 +200,10 @@ impl PolicyEvaluator {
                         ram_bytes: Some(available),
                     }));
                 }
-                return Some(PolicyDecision::Reject(
-                    format!("Insufficient RAM: need {} bytes, available {}", job_mem, available)
-                ));
+                return Some(PolicyDecision::Reject(format!(
+                    "Insufficient RAM: need {} bytes, available {}",
+                    job_mem, available
+                )));
             }
         }
         None
@@ -220,10 +226,10 @@ impl PolicyEvaluator {
                 // Simplified: assume job needs some GPU memory
                 let job_pct = 20.0; // Placeholder
                 if used_pct + job_pct > max_pct as f32 {
-                    return Some(PolicyDecision::Reject(
-                        format!("GPU memory would exceed limit: current {:.1}%, job ~{:.1}%, max {}%", 
-                            used_pct, job_pct, max_pct)
-                    ));
+                    return Some(PolicyDecision::Reject(format!(
+                        "GPU memory would exceed limit: current {:.1}%, job ~{:.1}%, max {}%",
+                        used_pct, job_pct, max_pct
+                    )));
                 }
             }
         }
@@ -282,12 +288,24 @@ impl PolicyEvaluator {
 pub fn merge_limits(local: &ResourceLimits, remote: &ResourceLimits) -> ResourceLimits {
     ResourceLimits {
         cpu_max_cores: tighten_opt(local.cpu_max_cores, remote.cpu_max_cores),
-        cpu_max_utilization_pct: tighten_opt(local.cpu_max_utilization_pct, remote.cpu_max_utilization_pct),
+        cpu_max_utilization_pct: tighten_opt(
+            local.cpu_max_utilization_pct,
+            remote.cpu_max_utilization_pct,
+        ),
         gpu_enabled: local.gpu_enabled && remote.gpu_enabled,
-        gpu_allowed_devices: intersect_devices(&local.gpu_allowed_devices, &remote.gpu_allowed_devices),
+        gpu_allowed_devices: intersect_devices(
+            &local.gpu_allowed_devices,
+            &remote.gpu_allowed_devices,
+        ),
         gpu_max_memory_pct: tighten_opt(local.gpu_max_memory_pct, remote.gpu_max_memory_pct),
-        ram_max_workload_bytes: tighten_opt(local.ram_max_workload_bytes, remote.ram_max_workload_bytes),
-        storage_workspace_path: local.storage_workspace_path.clone().or(remote.storage_workspace_path.clone()),
+        ram_max_workload_bytes: tighten_opt(
+            local.ram_max_workload_bytes,
+            remote.ram_max_workload_bytes,
+        ),
+        storage_workspace_path: local
+            .storage_workspace_path
+            .clone()
+            .or(remote.storage_workspace_path.clone()),
         storage_quota_bytes: tighten_opt(local.storage_quota_bytes, remote.storage_quota_bytes),
         schedule: merge_schedule(&local.schedule, &remote.schedule),
         power: merge_power(&local.power, &remote.power),
@@ -304,12 +322,23 @@ fn tighten_opt<T: Ord + Copy>(local: Option<T>, remote: Option<T>) -> Option<T> 
 }
 
 fn intersect_devices(local: &[String], remote: &[String]) -> Vec<String> {
-    if local.is_empty() { return remote.to_vec(); }
-    if remote.is_empty() { return local.to_vec(); }
-    local.iter().filter(|d| remote.contains(d)).cloned().collect()
+    if local.is_empty() {
+        return remote.to_vec();
+    }
+    if remote.is_empty() {
+        return local.to_vec();
+    }
+    local
+        .iter()
+        .filter(|d| remote.contains(d))
+        .cloned()
+        .collect()
 }
 
-fn merge_schedule(local: &Option<SharingSchedule>, remote: &Option<SharingSchedule>) -> Option<SharingSchedule> {
+fn merge_schedule(
+    local: &Option<SharingSchedule>,
+    remote: &Option<SharingSchedule>,
+) -> Option<SharingSchedule> {
     match (local, remote) {
         (Some(l), Some(r)) => Some(intersect_schedules(l, r)),
         (Some(l), None) => Some(l.clone()),
@@ -328,7 +357,10 @@ fn intersect_schedules(a: &SharingSchedule, b: &SharingSchedule) -> SharingSched
     }
 }
 
-fn merge_power(local: &bg_helper_protocol::resource::PowerPolicy, remote: &bg_helper_protocol::resource::PowerPolicy) -> bg_helper_protocol::resource::PowerPolicy {
+fn merge_power(
+    local: &bg_helper_protocol::resource::PowerPolicy,
+    remote: &bg_helper_protocol::resource::PowerPolicy,
+) -> bg_helper_protocol::resource::PowerPolicy {
     bg_helper_protocol::resource::PowerPolicy {
         allow_on_battery: local.allow_on_battery && remote.allow_on_battery,
         min_battery_pct: tighten_opt(local.min_battery_pct, remote.min_battery_pct),
@@ -339,8 +371,8 @@ fn merge_power(local: &bg_helper_protocol::resource::PowerPolicy, remote: &bg_he
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::job::{JobSpec, WorkloadType, JobPriority};
-    use bg_helper_protocol::resource::{ResourceLimits, ResourceUsage, PowerState, WorkerState};
+    use bg_helper_protocol::job::{JobPriority, JobSpec, WorkloadType};
+    use bg_helper_protocol::resource::{PowerState, ResourceLimits, ResourceUsage, WorkerState};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -382,26 +414,53 @@ mod tests {
     fn test_allow_simple_job() {
         let limits = default_limits();
         let usage = idle_usage();
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
-        
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
+
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Ac, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Ac,
+            WorkerState::Idle,
         );
         // Job is allowed with utilization reduction (100% utilization cap)
-        assert!(matches!(decision, PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)));
+        assert!(matches!(
+            decision,
+            PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)
+        ));
     }
 
     #[test]
     fn test_reject_cpu_cores() {
         let mut limits = default_limits();
         limits.cpu_max_cores = Some(1);
-        
+
         let mut usage = idle_usage();
         usage.cpu_cores_used = 0.9; // Almost all cores used
-        
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
+
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Ac, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Ac,
+            WorkerState::Idle,
         );
         assert!(matches!(decision, PolicyDecision::Reject(_)));
     }
@@ -410,30 +469,57 @@ mod tests {
     fn test_reduce_cpu_cores() {
         let mut limits = default_limits();
         limits.cpu_max_cores = Some(4); // More cores available
-        
+
         let mut usage = idle_usage();
         usage.cpu_cores_used = 1.5; // 1.5 cores used, 2.5 available
-        
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
+
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Ac, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Ac,
+            WorkerState::Idle,
         );
         // With 2.5 cores available and job needing 1, should be allowed (cores check passes)
         // But utilization check may still require reduction
-        assert!(matches!(decision, PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)));
+        assert!(matches!(
+            decision,
+            PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)
+        ));
     }
 
     #[test]
     fn test_reject_cpu_utilization() {
         let mut limits = default_limits();
         limits.cpu_max_utilization_pct = Some(30);
-        
+
         let mut usage = idle_usage();
         usage.cpu_utilization_pct = 25.0; // Already at 25%
-        
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
+
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Ac, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Ac,
+            WorkerState::Idle,
         );
         assert!(matches!(decision, PolicyDecision::Reject(_)));
     }
@@ -442,13 +528,25 @@ mod tests {
     fn test_reduce_cpu_utilization() {
         let mut limits = default_limits();
         limits.cpu_max_utilization_pct = Some(30);
-        
+
         let mut usage = idle_usage();
         usage.cpu_utilization_pct = 15.0; // Low enough that remaining >= 10%
-        
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
+
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Ac, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Ac,
+            WorkerState::Idle,
         );
         assert!(matches!(decision, PolicyDecision::AllowWithReduction(_)));
     }
@@ -457,32 +555,60 @@ mod tests {
     fn test_reject_ram() {
         let mut limits = default_limits();
         limits.ram_max_workload_bytes = Some(500_000_000); // 500MB
-        
+
         let mut usage = idle_usage();
         usage.ram_used_bytes = 18_000_000_000; // 18GB used, only 2GB free but limit is 500MB
-        
-        let job = JobSpec::new(WorkloadType::MatrixTile { 
-            size: 1000, 
-            tile: bg_helper_protocol::job::TileSpec { row: 0, col: 0, tile_size: 100 } 
-        }, JobPriority::Normal, 300);
+
+        let job = JobSpec::new(
+            WorkloadType::MatrixTile {
+                size: 1000,
+                tile: bg_helper_protocol::job::TileSpec {
+                    row: 0,
+                    col: 0,
+                    tile_size: 100,
+                },
+            },
+            JobPriority::Normal,
+            300,
+        );
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Ac, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Ac,
+            WorkerState::Idle,
         );
         // Job requires matrix(1000*1000*8*3) ~= 24MB, limit is 500MB, available is 500MB
         // 24MB <= 500MB, so should allow
-        assert!(matches!(decision, PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)));
+        assert!(matches!(
+            decision,
+            PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)
+        ));
     }
 
     #[test]
     fn test_reject_battery() {
         let mut limits = default_limits();
         limits.power.allow_on_battery = false;
-        
+
         let usage = idle_usage();
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
-        
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
+
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Battery, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Battery,
+            WorkerState::Idle,
         );
         assert!(matches!(decision, PolicyDecision::Reject(_)));
     }
@@ -491,15 +617,30 @@ mod tests {
     fn test_allow_on_battery() {
         let mut limits = default_limits();
         limits.power.allow_on_battery = true;
-        
+
         let usage = idle_usage();
-        let job = JobSpec::new(WorkloadType::RangeSum { start: 0, end: 1_000_000 }, JobPriority::Normal, 300);
-        
+        let job = JobSpec::new(
+            WorkloadType::RangeSum {
+                start: 0,
+                end: 1_000_000,
+            },
+            JobPriority::Normal,
+            300,
+        );
+
         let decision = PolicyEvaluator::evaluate_job_offer(
-            &limits, &usage, &job, None, PowerState::Battery, WorkerState::Idle
+            &limits,
+            &usage,
+            &job,
+            None,
+            PowerState::Battery,
+            WorkerState::Idle,
         );
         // Job is allowed on battery with utilization reduction
-        assert!(matches!(decision, PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)));
+        assert!(matches!(
+            decision,
+            PolicyDecision::Allow | PolicyDecision::AllowWithReduction(_)
+        ));
     }
 
     #[test]
@@ -514,7 +655,11 @@ mod tests {
             storage_workspace_path: Some("/local/path".into()),
             storage_quota_bytes: Some(10_000_000_000),
             schedule: None,
-            power: bg_helper_protocol::resource::PowerPolicy { allow_on_battery: true, min_battery_pct: Some(20), require_ac_for_gpu: false },
+            power: bg_helper_protocol::resource::PowerPolicy {
+                allow_on_battery: true,
+                min_battery_pct: Some(20),
+                require_ac_for_gpu: false,
+            },
         };
         let remote = ResourceLimits {
             cpu_max_cores: Some(2),
@@ -526,11 +671,15 @@ mod tests {
             storage_workspace_path: Some("/remote/path".into()),
             storage_quota_bytes: Some(5_000_000_000),
             schedule: None,
-            power: bg_helper_protocol::resource::PowerPolicy { allow_on_battery: false, min_battery_pct: Some(50), require_ac_for_gpu: true },
+            power: bg_helper_protocol::resource::PowerPolicy {
+                allow_on_battery: false,
+                min_battery_pct: Some(50),
+                require_ac_for_gpu: true,
+            },
         };
-        
+
         let merged = merge_limits(&local, &remote);
-        
+
         assert_eq!(merged.cpu_max_cores, Some(2));
         assert_eq!(merged.cpu_max_utilization_pct, Some(30));
         assert_eq!(merged.gpu_enabled, true); // local true && remote true = true

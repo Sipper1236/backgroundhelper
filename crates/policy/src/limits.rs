@@ -1,6 +1,6 @@
 //! Default resource limits and limit construction helpers.
 
-use bg_helper_protocol::resource::{ResourceLimits, PowerPolicy, SharingSchedule, TimeWindow};
+use bg_helper_protocol::resource::{PowerPolicy, ResourceLimits, SharingSchedule, TimeWindow};
 use bg_helper_protocol::validation::Validatable;
 use std::path::PathBuf;
 
@@ -52,8 +52,20 @@ pub fn office_hours_schedule(timezone: String) -> SharingSchedule {
     SharingSchedule {
         timezone,
         allowed_windows: vec![
-            TimeWindow { days: vec![1,2,3,4,5], start_hour: 9, start_minute: 0, end_hour: 17, end_minute: 0 },
-            TimeWindow { days: vec![1,2,3,4,5], start_hour: 18, start_minute: 0, end_hour: 22, end_minute: 0 },
+            TimeWindow {
+                days: vec![1, 2, 3, 4, 5],
+                start_hour: 9,
+                start_minute: 0,
+                end_hour: 17,
+                end_minute: 0,
+            },
+            TimeWindow {
+                days: vec![1, 2, 3, 4, 5],
+                start_hour: 18,
+                start_minute: 0,
+                end_hour: 22,
+                end_minute: 0,
+            },
         ],
     }
 }
@@ -62,9 +74,13 @@ pub fn office_hours_schedule(timezone: String) -> SharingSchedule {
 pub fn night_only_schedule(timezone: String) -> SharingSchedule {
     SharingSchedule {
         timezone,
-        allowed_windows: vec![
-            TimeWindow { days: vec![0,1,2,3,4,5,6], start_hour: 22, start_minute: 0, end_hour: 6, end_minute: 0 },
-        ],
+        allowed_windows: vec![TimeWindow {
+            days: vec![0, 1, 2, 3, 4, 5, 6],
+            start_hour: 22,
+            start_minute: 0,
+            end_hour: 6,
+            end_minute: 0,
+        }],
     }
 }
 
@@ -72,9 +88,13 @@ pub fn night_only_schedule(timezone: String) -> SharingSchedule {
 pub fn weekends_only_schedule(timezone: String) -> SharingSchedule {
     SharingSchedule {
         timezone,
-        allowed_windows: vec![
-            TimeWindow { days: vec![0,6], start_hour: 8, start_minute: 0, end_hour: 22, end_minute: 0 },
-        ],
+        allowed_windows: vec![TimeWindow {
+            days: vec![0, 6],
+            start_hour: 8,
+            start_minute: 0,
+            end_hour: 22,
+            end_minute: 0,
+        }],
     }
 }
 
@@ -85,7 +105,9 @@ pub struct LimitsBuilder {
 
 impl LimitsBuilder {
     pub fn new() -> Self {
-        Self { limits: default_limits() }
+        Self {
+            limits: default_limits(),
+        }
     }
 
     pub fn cpu_cores(mut self, cores: u32) -> Self {
@@ -170,7 +192,7 @@ mod tests {
             .ram_limit(2_000_000_000)
             .build()
             .unwrap();
-        
+
         assert_eq!(limits.cpu_max_cores, Some(2));
         assert_eq!(limits.cpu_max_utilization_pct, Some(75));
         assert_eq!(limits.ram_max_workload_bytes, Some(2_000_000_000));
@@ -182,7 +204,7 @@ mod tests {
             .cpu_utilization(150) // Should clamp to 100
             .build()
             .unwrap();
-        
+
         assert_eq!(limits.cpu_max_utilization_pct, Some(100));
     }
 
@@ -190,7 +212,7 @@ mod tests {
     fn test_schedule_helpers() {
         let schedule = office_hours_schedule("UTC".into());
         assert_eq!(schedule.allowed_windows.len(), 2);
-        
+
         let schedule = night_only_schedule("UTC".into());
         assert_eq!(schedule.allowed_windows.len(), 1);
         assert_eq!(schedule.allowed_windows[0].start_hour, 22);

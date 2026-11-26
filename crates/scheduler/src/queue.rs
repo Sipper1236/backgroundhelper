@@ -1,8 +1,8 @@
 //! Job queue implementation.
 
-use std::collections::VecDeque;
-use bg_helper_protocol::job::{JobSpec, JobId, JobPriority};
+use bg_helper_protocol::job::{JobId, JobPriority, JobSpec};
 use chrono::{DateTime, Utc};
+use std::collections::VecDeque;
 use uuid::Uuid;
 
 /// A job in the queue with metadata.
@@ -55,8 +55,13 @@ impl JobQueue {
         // Higher priority value = higher priority (Critical=3, High=2, Normal=1, Low=0)
         // We want highest priority jobs first (at lower indices), then FIFO within same priority
         // FIFO means older jobs first, so for same priority: insert after jobs with earlier timestamps
-        let pos = self.queued.iter()
-            .position(|j| j.priority < job.priority || (j.priority == job.priority && j.queued_at > job.queued_at))
+        let pos = self
+            .queued
+            .iter()
+            .position(|j| {
+                j.priority < job.priority
+                    || (j.priority == job.priority && j.queued_at > job.queued_at)
+            })
             .unwrap_or(self.queued.len());
         self.queued.insert(pos, job);
     }
@@ -79,7 +84,8 @@ impl JobQueue {
         if let Some(pos) = self.queued.iter().position(|j| j.spec.id == job_id) {
             let mut job = self.queued.remove(pos);
             job.assigned_worker = Some(worker_id);
-            job.offer_expires_at = Some(Utc::now() + chrono::Duration::seconds(offer_duration_secs as i64));
+            job.offer_expires_at =
+                Some(Utc::now() + chrono::Duration::seconds(offer_duration_secs as i64));
             self.assigned.push(job);
             true
         } else {
@@ -89,7 +95,9 @@ impl JobQueue {
 
     /// Complete a job (remove from assigned).
     pub fn complete(&mut self, job_id: JobId) -> Option<QueuedJob> {
-        self.assigned.iter().position(|j| j.spec.id == job_id)
+        self.assigned
+            .iter()
+            .position(|j| j.spec.id == job_id)
             .map(|pos| {
                 let job = self.assigned.remove(pos);
                 self.completed.push(job_id);
@@ -103,7 +111,11 @@ impl JobQueue {
         let mut expired = Vec::new();
         let mut i = 0;
         while i < self.assigned.len() {
-            if self.assigned[i].offer_expires_at.map(|e| e < now).unwrap_or(false) {
+            if self.assigned[i]
+                .offer_expires_at
+                .map(|e| e < now)
+                .unwrap_or(false)
+            {
                 let job = self.assigned.remove(i);
                 expired.push(job.spec.id);
                 self.queued.push(job); // Re-queue for retry
@@ -171,7 +183,7 @@ impl Default for JobQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::job::{JobSpec, WorkloadType, JobPriority};
+    use bg_helper_protocol::job::{JobPriority, JobSpec, WorkloadType};
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -184,17 +196,29 @@ mod tests {
     fn test_queue_fifo_same_priority() {
         let mut queue = JobQueue::new();
         let now = Utc::now();
-        
-        let job1 = test_job(WorkloadType::RangeSum { start: 0, end: 100 }, JobPriority::Normal);
-        let job2 = test_job(WorkloadType::RangeSum { start: 100, end: 200 }, JobPriority::Normal);
-        
+
+        let job1 = test_job(
+            WorkloadType::RangeSum { start: 0, end: 100 },
+            JobPriority::Normal,
+        );
+        let job2 = test_job(
+            WorkloadType::RangeSum {
+                start: 100,
+                end: 200,
+            },
+            JobPriority::Normal,
+        );
+
         queue.enqueue(QueuedJob::new(job1.clone(), now));
-        queue.enqueue(QueuedJob::new(job2.clone(), now + chrono::Duration::seconds(1)));
-        
+        queue.enqueue(QueuedJob::new(
+            job2.clone(),
+            now + chrono::Duration::seconds(1),
+        ));
+
         // First in should be first out (since same priority)
         let first = queue.dequeue().unwrap();
         assert_eq!(first.spec.id, job1.id);
-        
+
         let second = queue.dequeue().unwrap();
         assert_eq!(second.spec.id, job2.id);
     }
@@ -203,13 +227,22 @@ mod tests {
     fn test_queue_priority_order() {
         let mut queue = JobQueue::new();
         let now = Utc::now();
-        
-        let job_low = test_job(WorkloadType::RangeSum { start: 0, end: 100 }, JobPriority::Low);
-        let job_high = test_job(WorkloadType::RangeSum { start: 100, end: 200 }, JobPriority::High);
-        
+
+        let job_low = test_job(
+            WorkloadType::RangeSum { start: 0, end: 100 },
+            JobPriority::Low,
+        );
+        let job_high = test_job(
+            WorkloadType::RangeSum {
+                start: 100,
+                end: 200,
+            },
+            JobPriority::High,
+        );
+
         queue.enqueue(QueuedJob::new(job_low.clone(), now));
         queue.enqueue(QueuedJob::new(job_high.clone(), now));
-        
+
         // High priority should come first
         let first = queue.dequeue().unwrap();
         assert_eq!(first.spec.id, job_high.id);
@@ -221,16 +254,19 @@ mod tests {
         let mut queue = JobQueue::new();
         let now = Utc::now();
         let worker_id = Uuid::new_v4();
-        
-        let job = test_job(WorkloadType::RangeSum { start: 0, end: 100 }, JobPriority::Normal);
+
+        let job = test_job(
+            WorkloadType::RangeSum { start: 0, end: 100 },
+            JobPriority::Normal,
+        );
         let job_id = job.id;
         queue.enqueue(QueuedJob::new(job, now));
-        
+
         // Assign
         assert!(queue.assign(job_id, worker_id, 60));
         assert_eq!(queue.len(), 0);
         assert_eq!(queue.assigned_len(), 1);
-        
+
         // Complete
         let completed = queue.complete(job_id).unwrap();
         assert_eq!(completed.spec.id, job_id);
@@ -242,14 +278,17 @@ mod tests {
     fn test_queue_expire_offers() {
         let mut queue = JobQueue::new();
         let worker_id = Uuid::new_v4();
-        
-        let job = test_job(WorkloadType::RangeSum { start: 0, end: 100 }, JobPriority::Normal);
+
+        let job = test_job(
+            WorkloadType::RangeSum { start: 0, end: 100 },
+            JobPriority::Normal,
+        );
         let job_id = job.id;
         queue.enqueue(QueuedJob::new(job, Utc::now()));
-        
+
         // Assign with very short duration
         queue.assign(job_id, worker_id, 0);
-        
+
         // Should be expired
         let expired = queue.expire_offers();
         assert_eq!(expired.len(), 1);

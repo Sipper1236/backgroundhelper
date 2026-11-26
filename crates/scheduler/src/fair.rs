@@ -1,16 +1,16 @@
 //! Fair scheduling algorithm implementation.
 
-use std::collections::HashMap;
+use crate::queue::{JobQueue, QueuedJob};
+use crate::strategy::PlacementStrategy;
 use bg_helper_protocol::{
-    job::{JobSpec, JobPriority, JobId},
-    resource::{WorkerState, ResourceUsage, ResourceLimits, HardwareCapability},
+    job::{JobId, JobPriority, JobSpec},
+    resource::{HardwareCapability, ResourceLimits, ResourceUsage, WorkerState},
     validation::Validatable,
 };
-use crate::queue::{QueuedJob, JobQueue};
-use crate::strategy::PlacementStrategy;
-use uuid::Uuid;
 use chrono::Utc;
+use std::collections::HashMap;
 use tracing::{debug, trace};
+use uuid::Uuid;
 
 /// Scheduling decision.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,7 +34,11 @@ pub struct WorkerScore {
 
 impl WorkerScore {
     pub fn is_suitable(&self) -> bool {
-        self.cpu_available && self.ram_available && self.gpu_compatible && self.schedule_ok && self.power_ok
+        self.cpu_available
+            && self.ram_available
+            && self.gpu_compatible
+            && self.schedule_ok
+            && self.power_ok
     }
 }
 
@@ -105,7 +109,11 @@ impl FairScheduler {
         let mut score = 0.0;
 
         // Base score from virtual time (lower virtual time = higher score for fairness)
-        let vtime = self.worker_virtual_time.get(&worker.worker_id).copied().unwrap_or(0.0);
+        let vtime = self
+            .worker_virtual_time
+            .get(&worker.worker_id)
+            .copied()
+            .unwrap_or(0.0);
         score += 1000.0 - vtime.min(1000.0);
 
         // Worker must be able to accept work
@@ -184,7 +192,11 @@ impl FairScheduler {
     }
 
     fn check_schedule(&self, limits: &ResourceLimits) -> bool {
-        limits.schedule.as_ref().map(|s| s.is_allowed_now()).unwrap_or(true)
+        limits
+            .schedule
+            .as_ref()
+            .map(|s| s.is_allowed_now())
+            .unwrap_or(true)
     }
 
     fn check_power(&self, usage: &ResourceUsage, limits: &ResourceLimits) -> bool {
@@ -200,32 +212,41 @@ impl FairScheduler {
     pub fn schedule_next(&mut self, workers: &[WorkerSnapshot]) -> Option<ScheduleDecision> {
         let job = self.peek()?.clone();
         let scores = self.score_workers(&job.spec, workers);
-        
+
         // Filter suitable workers
         let suitable: Vec<_> = scores.into_iter().filter(|s| s.is_suitable()).collect();
-        
+
         if suitable.is_empty() {
             // Check if any worker could work but is temporarily unavailable
-            let any_online = workers.iter().any(|w| w.status != WorkerState::Offline && w.status != WorkerState::Revoked);
+            let any_online = workers
+                .iter()
+                .any(|w| w.status != WorkerState::Offline && w.status != WorkerState::Revoked);
             if any_online {
-                return Some(ScheduleDecision::Defer { 
-                    reason: "No suitable workers currently available".into() 
+                return Some(ScheduleDecision::Defer {
+                    reason: "No suitable workers currently available".into(),
                 });
             }
-            return Some(ScheduleDecision::Reject { 
-                reason: "No eligible workers in cluster".into() 
+            return Some(ScheduleDecision::Reject {
+                reason: "No eligible workers in cluster".into(),
             });
         }
 
         // Pick highest scoring worker
-        let best = suitable.into_iter().max_by(|a, b| a.score.partial_cmp(&b.score).unwrap())?;
-        
+        let best = suitable
+            .into_iter()
+            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap())?;
+
         // Update virtual time for fairness
         let job_weight = self.priority_weights[job.spec.priority as usize];
-        let vtime = self.worker_virtual_time.entry(best.worker_id).or_insert(0.0);
+        let vtime = self
+            .worker_virtual_time
+            .entry(best.worker_id)
+            .or_insert(0.0);
         *vtime += job_weight * job.spec.workload.estimated_cycles() as f64 / 1_000_000.0;
 
-        Some(ScheduleDecision::Assign { worker_id: best.worker_id })
+        Some(ScheduleDecision::Assign {
+            worker_id: best.worker_id,
+        })
     }
 
     /// Record a job assignment for fairness tracking.
@@ -237,7 +258,10 @@ impl FairScheduler {
 
     /// Get current virtual time for a worker.
     pub fn get_virtual_time(&self, worker_id: Uuid) -> f64 {
-        self.worker_virtual_time.get(&worker_id).copied().unwrap_or(0.0)
+        self.worker_virtual_time
+            .get(&worker_id)
+            .copied()
+            .unwrap_or(0.0)
     }
 
     /// Reset virtual time (e.g., on worker reconnect).
@@ -271,7 +295,9 @@ impl WorkerSnapshot {
 fn estimate_job_cores(job: &JobSpec) -> f32 {
     match &job.workload {
         bg_helper_protocol::job::WorkloadType::RangeSum { .. } => 1.0,
-        bg_helper_protocol::job::WorkloadType::MatrixTile { size, tile } => (*size / tile.tile_size) as f32,
+        bg_helper_protocol::job::WorkloadType::MatrixTile { size, tile } => {
+            (*size / tile.tile_size) as f32
+        }
         bg_helper_protocol::job::WorkloadType::PrimeCount { .. } => 1.0,
     }
 }
@@ -283,9 +309,11 @@ fn estimate_job_cpu_pct(job: &JobSpec) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::job::{JobSpec, WorkloadType, JobPriority};
-    use bg_helper_protocol::resource::{ResourceLimits, ResourceUsage, WorkerState, HardwareCapability, PowerState};
-    use crate::{WorkerSnapshot, QueuedJob};
+    use crate::{QueuedJob, WorkerSnapshot};
+    use bg_helper_protocol::job::{JobPriority, JobSpec, WorkloadType};
+    use bg_helper_protocol::resource::{
+        HardwareCapability, PowerState, ResourceLimits, ResourceUsage, WorkerState,
+    };
     use chrono::Utc;
     use uuid::Uuid;
 
@@ -334,13 +362,18 @@ mod tests {
         let worker_id = Uuid::new_v4();
         // 10% current + 100% job = 110%, so limit must be >= 110
         let worker = test_worker(worker_id, Some(4), Some(150));
-        
-        let job = test_job(WorkloadType::RangeSum { start: 0, end: 1_000_000 });
+
+        let job = test_job(WorkloadType::RangeSum {
+            start: 0,
+            end: 1_000_000,
+        });
         let queued = QueuedJob::new(job.clone(), Utc::now());
         scheduler.enqueue(queued);
-        
+
         let decision = scheduler.schedule_next(&[worker.clone()]);
-        assert!(matches!(decision, Some(ScheduleDecision::Assign { worker_id: w }) if w == worker_id));
+        assert!(
+            matches!(decision, Some(ScheduleDecision::Assign { worker_id: w }) if w == worker_id)
+        );
     }
 
     #[test]
@@ -348,18 +381,24 @@ mod tests {
         let mut scheduler = FairScheduler::new();
         let worker1 = Uuid::new_v4();
         let worker2 = Uuid::new_v4();
-        
+
         // 10% current + 100% job = 110%, so limit must be >= 110
         let w1 = test_worker(worker1, Some(4), Some(150));
         let w2 = test_worker(worker2, Some(4), Some(150));
-        
+
         // Add two jobs
-        let job1 = test_job(WorkloadType::RangeSum { start: 0, end: 1_000_000 });
-        let job2 = test_job(WorkloadType::RangeSum { start: 1_000_000, end: 2_000_000 });
-        
+        let job1 = test_job(WorkloadType::RangeSum {
+            start: 0,
+            end: 1_000_000,
+        });
+        let job2 = test_job(WorkloadType::RangeSum {
+            start: 1_000_000,
+            end: 2_000_000,
+        });
+
         scheduler.enqueue(QueuedJob::new(job1, Utc::now()));
         scheduler.enqueue(QueuedJob::new(job2, Utc::now()));
-        
+
         // First job should go to one of the workers
         let d1 = scheduler.schedule_next(&[w1.clone(), w2.clone()]);
         let worker1_id = if let Some(ScheduleDecision::Assign { worker_id }) = d1.clone() {
@@ -367,14 +406,17 @@ mod tests {
         } else {
             panic!("Expected Assign decision");
         };
-        
+
         // First job should be assigned to one of the workers
         assert!(worker1_id == worker1 || worker1_id == worker2);
-        
+
         // Second job should go to the other worker
         let d2 = scheduler.schedule_next(&[w1, w2]);
         if let Some(ScheduleDecision::Assign { worker_id }) = d2 {
-            assert!(worker_id != worker1_id, "Second job should go to different worker");
+            assert!(
+                worker_id != worker1_id,
+                "Second job should go to different worker"
+            );
         } else {
             panic!("Expected Assign decision");
         }
@@ -384,17 +426,20 @@ mod tests {
     fn test_fair_scheduler_cpu_limit() {
         let mut scheduler = FairScheduler::new();
         let worker_id = Uuid::new_v4();
-        
+
         // Worker with 1 core limit, already using 0.9
         // cpu_cores_used = 0.9 means only 0.1 cores available
         // Job needs 1 core, so worker cannot accept
         let worker = test_worker(worker_id, Some(1), Some(150)); // Allow for util check, RAM should work
         let mut worker = worker;
         worker.usage.cpu_cores_used = 0.9;
-        
-        let job = test_job(WorkloadType::RangeSum { start: 0, end: 1_000_000 });
+
+        let job = test_job(WorkloadType::RangeSum {
+            start: 0,
+            end: 1_000_000,
+        });
         scheduler.enqueue(QueuedJob::new(job, Utc::now()));
-        
+
         let decision = scheduler.schedule_next(&[worker]);
         // Worker is online but cannot accept - should defer (might become available)
         assert!(matches!(decision, Some(ScheduleDecision::Defer { .. })));
@@ -404,15 +449,18 @@ mod tests {
     fn test_fair_scheduler_utilization_limit() {
         let mut scheduler = FairScheduler::new();
         let worker_id = Uuid::new_v4();
-        
+
         // Worker at 45% utilization, limit 50%
         // 45% + 100% (job estimate) = 145% > 50% limit
         let mut worker = test_worker(worker_id, Some(4), Some(60)); // Use 60% limit to avoid rejection due to RAM
         worker.usage.cpu_utilization_pct = 45.0;
-        
-        let job = test_job(WorkloadType::RangeSum { start: 0, end: 1_000_000 });
+
+        let job = test_job(WorkloadType::RangeSum {
+            start: 0,
+            end: 1_000_000,
+        });
         scheduler.enqueue(QueuedJob::new(job, Utc::now()));
-        
+
         let decision = scheduler.schedule_next(&[worker]);
         // Worker is online but cannot accept - should defer (might become available)
         assert!(matches!(decision, Some(ScheduleDecision::Defer { .. })));
@@ -424,24 +472,30 @@ mod tests {
         let worker_id = Uuid::new_v4();
         // 10% current + 100% job = 110%, so limit must be >= 110
         let worker = test_worker(worker_id, Some(4), Some(150));
-        
+
         // Add low priority job first
-        let job_low = test_job(WorkloadType::RangeSum { start: 0, end: 1_000_000 });
+        let job_low = test_job(WorkloadType::RangeSum {
+            start: 0,
+            end: 1_000_000,
+        });
         let mut job_low = job_low;
         job_low.priority = JobPriority::Low;
         scheduler.enqueue(QueuedJob::new(job_low.clone(), Utc::now()));
-        
+
         // Add high priority job
-        let job_high = test_job(WorkloadType::RangeSum { start: 1_000_000, end: 2_000_000 });
+        let job_high = test_job(WorkloadType::RangeSum {
+            start: 1_000_000,
+            end: 2_000_000,
+        });
         let mut job_high = job_high;
         job_high.priority = JobPriority::High;
         scheduler.enqueue(QueuedJob::new(job_high.clone(), Utc::now()));
-        
+
         // High priority should be scheduled first
         let decision = scheduler.schedule_next(&[worker.clone()]);
         eprintln!("Decision: {:?}", decision);
         assert!(matches!(decision, Some(ScheduleDecision::Assign { .. })));
-        
+
         // The high priority job should be the one assigned
         let assigned_job = scheduler.dequeue().unwrap();
         assert_eq!(assigned_job.spec.priority, JobPriority::High);
@@ -474,7 +528,7 @@ mod tests {
             last_heartbeat: Utc::now(),
             version: "0.1.0".into(),
         };
-        
+
         let snapshot = WorkerSnapshot::from_protocol(proto_snapshot);
         assert_eq!(snapshot.status, WorkerState::Idle);
     }

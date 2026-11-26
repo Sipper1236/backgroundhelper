@@ -1,7 +1,9 @@
 //! Worker UI components (TUI and mockups for owner-facing interface).
 
-use bg_helper_protocol::resource::{ResourceLimits, ResourceUsage, WorkerState, PowerState, ThermalState};
-use bg_helper_protocol::job::{JobSpec, JobResult};
+use bg_helper_protocol::job::{JobResult, JobSpec};
+use bg_helper_protocol::resource::{
+    PowerState, ResourceLimits, ResourceUsage, ThermalState, WorkerState,
+};
 use std::time::Duration;
 
 /// Owner-facing status information.
@@ -38,43 +40,74 @@ impl TextUI {
     /// Render the status as text.
     pub fn render(&self) -> String {
         let mut out = String::new();
-        
+
         out.push_str(&format!("╔══════════════════════════════════════════╗\n"));
         out.push_str(&format!("║  BackgroundHelper Worker Status          ║\n"));
         out.push_str(&format!("╠══════════════════════════════════════════╣\n"));
         out.push_str(&format!("║  Worker: {:<30} ║\n", self.status.worker_name));
-        out.push_str(&format!("║  State:  {:<30} ║\n", format!("{:?}", self.status.state)));
-        out.push_str(&format!("║  Sharing: {:<29} ║\n", if self.status.sharing_active { "ACTIVE" } else { "PAUSED" }));
+        out.push_str(&format!(
+            "║  State:  {:<30} ║\n",
+            format!("{:?}", self.status.state)
+        ));
+        out.push_str(&format!(
+            "║  Sharing: {:<29} ║\n",
+            if self.status.sharing_active {
+                "ACTIVE"
+            } else {
+                "PAUSED"
+            }
+        ));
         out.push_str(&format!("╠══════════════════════════════════════════╣\n"));
-        
+
         // Current job
         if let Some(job) = &self.status.current_job {
             out.push_str(&format!("║  Current Job:                            ║\n"));
-            out.push_str(&format!("║    ID: {:<34} ║\n", &job.job_id[..job.job_id.len().min(34)]));
+            out.push_str(&format!(
+                "║    ID: {:<34} ║\n",
+                &job.job_id[..job.job_id.len().min(34)]
+            ));
             out.push_str(&format!("║    Type: {:<30} ║\n", job.workload_type));
-            out.push_str(&format!("║    Progress: {:>3.0}%                      ║\n", job.progress_pct));
-            out.push_str(&format!("║    Elapsed: {:>5}s  Remaining: {:>5}s   ║\n", 
-                job.elapsed.as_secs(), 
+            out.push_str(&format!(
+                "║    Progress: {:>3.0}%                      ║\n",
+                job.progress_pct
+            ));
+            out.push_str(&format!(
+                "║    Elapsed: {:>5}s  Remaining: {:>5}s   ║\n",
+                job.elapsed.as_secs(),
                 job.estimated_remaining.map(|d| d.as_secs()).unwrap_or(0)
             ));
         } else {
             out.push_str(&format!("║  Current Job: None                       ║\n"));
         }
         out.push_str(&format!("╠══════════════════════════════════════════╣\n"));
-        
+
         // Resource usage
         let usage = &self.status.resource_usage;
         out.push_str(&format!("║  Resource Usage:                         ║\n"));
-        out.push_str(&format!("║    CPU: {:>5.1}% ({:.1} cores)            ║\n", 
-            usage.cpu_utilization_pct, usage.cpu_cores_used));
-        out.push_str(&format!("║    RAM: {:>10} / {:>10} bytes          ║\n",
-            usage.ram_used_bytes, usage.ram_used_bytes + usage.ram_available_bytes));
-        out.push_str(&format!("║    Storage: {:>8} / {:>8} bytes         ║\n",
-            usage.storage_used_bytes, usage.storage_used_bytes + usage.storage_available_bytes));
-        out.push_str(&format!("║    Power: {:<30} ║\n", format!("{:?}", usage.power_state)));
-        out.push_str(&format!("║    Thermal: {:<28} ║\n", format!("{:?}", usage.thermal_state)));
+        out.push_str(&format!(
+            "║    CPU: {:>5.1}% ({:.1} cores)            ║\n",
+            usage.cpu_utilization_pct, usage.cpu_cores_used
+        ));
+        out.push_str(&format!(
+            "║    RAM: {:>10} / {:>10} bytes          ║\n",
+            usage.ram_used_bytes,
+            usage.ram_used_bytes + usage.ram_available_bytes
+        ));
+        out.push_str(&format!(
+            "║    Storage: {:>8} / {:>8} bytes         ║\n",
+            usage.storage_used_bytes,
+            usage.storage_used_bytes + usage.storage_available_bytes
+        ));
+        out.push_str(&format!(
+            "║    Power: {:<30} ║\n",
+            format!("{:?}", usage.power_state)
+        ));
+        out.push_str(&format!(
+            "║    Thermal: {:<28} ║\n",
+            format!("{:?}", usage.thermal_state)
+        ));
         out.push_str(&format!("╠══════════════════════════════════════════╣\n"));
-        
+
         // Limits
         out.push_str(&format!("║  Configured Limits:                      ║\n"));
         if let Some(cores) = self.status.limits.cpu_max_cores {
@@ -87,15 +120,27 @@ impl TextUI {
             out.push_str(&format!("║    Max RAM: {:<21} ║\n", format_bytes(ram)));
         }
         if let Some(quota) = self.status.limits.storage_quota_bytes {
-            out.push_str(&format!("║    Storage Quota: {:<19} ║\n", format_bytes(quota)));
+            out.push_str(&format!(
+                "║    Storage Quota: {:<19} ║\n",
+                format_bytes(quota)
+            ));
         }
         if let Some(schedule) = &self.status.limits.schedule {
-            out.push_str(&format!("║    Schedule: {} windows               ║\n", schedule.allowed_windows.len()));
+            out.push_str(&format!(
+                "║    Schedule: {} windows               ║\n",
+                schedule.allowed_windows.len()
+            ));
         }
-        out.push_str(&format!("║    Battery: {}                      ║\n", 
-            if self.status.limits.power.allow_on_battery { "Allowed" } else { "Not allowed" }));
+        out.push_str(&format!(
+            "║    Battery: {}                      ║\n",
+            if self.status.limits.power.allow_on_battery {
+                "Allowed"
+            } else {
+                "Not allowed"
+            }
+        ));
         out.push_str(&format!("╚══════════════════════════════════════════╝\n"));
-        
+
         out
     }
 
@@ -106,14 +151,18 @@ impl TextUI {
         } else {
             "Idle".to_string()
         };
-        
+
         format!(
             "BackgroundHelper | {} | {} | CPU: {:.0}% | RAM: {} | {}",
             self.status.worker_name,
             job_str,
             self.status.resource_usage.cpu_utilization_pct,
             format_bytes(self.status.resource_usage.ram_used_bytes),
-            if self.status.sharing_active { "SHARING" } else { "PAUSED" }
+            if self.status.sharing_active {
+                "SHARING"
+            } else {
+                "PAUSED"
+            }
         )
     }
 }
@@ -209,9 +258,11 @@ pub mod web {
                     cpu_pct: status.resource_usage.cpu_utilization_pct,
                     cpu_cores: status.resource_usage.cpu_cores_used,
                     ram_used: status.resource_usage.ram_used_bytes,
-                    ram_total: status.resource_usage.ram_used_bytes + status.resource_usage.ram_available_bytes,
+                    ram_total: status.resource_usage.ram_used_bytes
+                        + status.resource_usage.ram_available_bytes,
                     storage_used: status.resource_usage.storage_used_bytes,
-                    storage_total: status.resource_usage.storage_used_bytes + status.resource_usage.storage_available_bytes,
+                    storage_total: status.resource_usage.storage_used_bytes
+                        + status.resource_usage.storage_available_bytes,
                     power_state: format!("{:?}", status.resource_usage.power_state),
                     thermal_state: format!("{:?}", status.resource_usage.thermal_state),
                 },
@@ -220,7 +271,12 @@ pub mod web {
                     max_cpu_pct: status.limits.cpu_max_utilization_pct,
                     max_ram: status.limits.ram_max_workload_bytes,
                     storage_quota: status.limits.storage_quota_bytes,
-                    schedule_windows: status.limits.schedule.as_ref().map(|s| s.allowed_windows.len()).unwrap_or(0),
+                    schedule_windows: status
+                        .limits
+                        .schedule
+                        .as_ref()
+                        .map(|s| s.allowed_windows.len())
+                        .unwrap_or(0),
                     battery_allowed: status.limits.power.allow_on_battery,
                 },
                 activity: vec![], // Would be populated from history
@@ -231,8 +287,8 @@ pub mod web {
 
 /// Settings UI data structures.
 pub mod settings {
-    use bg_helper_protocol::resource::{ResourceLimits, SharingSchedule, TimeWindow, PowerPolicy};
-    use serde::{Serialize, Deserialize};
+    use bg_helper_protocol::resource::{PowerPolicy, ResourceLimits, SharingSchedule, TimeWindow};
+    use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize)]
     pub struct SettingsForm {
@@ -266,20 +322,37 @@ pub mod settings {
             Self {
                 cpu_cores: limits.cpu_max_cores,
                 cpu_utilization_pct: limits.cpu_max_utilization_pct,
-                ram_limit_gb: limits.ram_max_workload_bytes.map(|b| b as f32 / 1_073_741_824.0),
-                storage_quota_gb: limits.storage_quota_bytes.map(|b| b as f32 / 1_073_741_824.0),
+                ram_limit_gb: limits
+                    .ram_max_workload_bytes
+                    .map(|b| b as f32 / 1_073_741_824.0),
+                storage_quota_gb: limits
+                    .storage_quota_bytes
+                    .map(|b| b as f32 / 1_073_741_824.0),
                 battery_allowed: limits.power.allow_on_battery,
                 min_battery_pct: limits.power.min_battery_pct,
                 schedule: ScheduleForm {
                     enabled: limits.schedule.is_some(),
-                    timezone: limits.schedule.as_ref().map(|s| s.timezone.clone()).unwrap_or_else(|| "UTC".into()),
-                    windows: limits.schedule.as_ref().map(|s| s.allowed_windows.iter().map(|w| WindowForm {
-                        days: w.days.clone(),
-                        start_hour: w.start_hour,
-                        start_minute: w.start_minute,
-                        end_hour: w.end_hour,
-                        end_minute: w.end_minute,
-                    }).collect()).unwrap_or_default(),
+                    timezone: limits
+                        .schedule
+                        .as_ref()
+                        .map(|s| s.timezone.clone())
+                        .unwrap_or_else(|| "UTC".into()),
+                    windows: limits
+                        .schedule
+                        .as_ref()
+                        .map(|s| {
+                            s.allowed_windows
+                                .iter()
+                                .map(|w| WindowForm {
+                                    days: w.days.clone(),
+                                    start_hour: w.start_hour,
+                                    start_minute: w.start_minute,
+                                    end_hour: w.end_hour,
+                                    end_minute: w.end_minute,
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 },
             }
         }
@@ -293,13 +366,18 @@ pub mod settings {
                 schedule: if self.schedule.enabled {
                     Some(SharingSchedule {
                         timezone: self.schedule.timezone.clone(),
-                        allowed_windows: self.schedule.windows.iter().map(|w| TimeWindow {
-                            days: w.days.clone(),
-                            start_hour: w.start_hour,
-                            start_minute: w.start_minute,
-                            end_hour: w.end_hour,
-                            end_minute: w.end_minute,
-                        }).collect(),
+                        allowed_windows: self
+                            .schedule
+                            .windows
+                            .iter()
+                            .map(|w| TimeWindow {
+                                days: w.days.clone(),
+                                start_hour: w.start_hour,
+                                start_minute: w.start_minute,
+                                end_hour: w.end_hour,
+                                end_minute: w.end_minute,
+                            })
+                            .collect(),
                     })
                 } else {
                     None
@@ -318,9 +396,11 @@ pub mod settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bg_helper_protocol::resource::{ResourceLimits, ResourceUsage, WorkerState, PowerState, ThermalState};
-    use uuid::Uuid;
+    use bg_helper_protocol::resource::{
+        PowerState, ResourceLimits, ResourceUsage, ThermalState, WorkerState,
+    };
     use chrono::Utc;
+    use uuid::Uuid;
 
     fn test_status() -> OwnerStatus {
         OwnerStatus {
@@ -366,7 +446,7 @@ mod tests {
     fn test_text_ui_render() {
         let ui = TextUI::new(test_status());
         let output = ui.render();
-        
+
         assert!(output.contains("BackgroundHelper Worker Status"));
         assert!(output.contains("test-worker"));
         assert!(output.contains("range_sum"));
@@ -377,7 +457,7 @@ mod tests {
     fn test_compact_render() {
         let ui = TextUI::new(test_status());
         let output = ui.render_compact();
-        
+
         assert!(output.contains("BackgroundHelper"));
         assert!(output.contains("test-worker"));
         assert!(output.contains("SHARING"));
@@ -393,7 +473,7 @@ mod tests {
             power: Default::default(),
             ..Default::default()
         };
-        
+
         let form = settings::SettingsForm::from_limits(&limits);
         assert_eq!(form.cpu_cores, Some(2));
         assert_eq!(form.cpu_utilization_pct, Some(50));

@@ -1,10 +1,10 @@
 //! Enrollment and invitation types.
 
+use crate::resource::{HardwareCapability, ResourceLimits};
+use crate::validation::{Validatable, ValidationError};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use crate::resource::{ResourceLimits, HardwareCapability};
-use crate::validation::{ValidationError, Validatable};
 
 /// Invitation code for worker enrollment.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,13 +86,19 @@ pub struct ConfigUpdate {
 impl Validatable for EnrollmentRequest {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.worker_name.trim().is_empty() {
-            return Err(ValidationError::InvalidField("worker_name cannot be empty".into()));
+            return Err(ValidationError::InvalidField(
+                "worker_name cannot be empty".into(),
+            ));
         }
         if self.worker_name.len() > 100 {
-            return Err(ValidationError::InvalidField("worker_name too long (max 100)".into()));
+            return Err(ValidationError::InvalidField(
+                "worker_name too long (max 100)".into(),
+            ));
         }
         if self.capabilities.is_empty() {
-            return Err(ValidationError::InvalidField("at least one capability required".into()));
+            return Err(ValidationError::InvalidField(
+                "at least one capability required".into(),
+            ));
         }
         self.proposed_limits.validate()?;
         Ok(())
@@ -103,14 +109,20 @@ impl Validatable for EnrollmentResponse {
     fn validate(&self) -> Result<(), ValidationError> {
         if self.accepted {
             if self.worker_id.is_none() {
-                return Err(ValidationError::InvalidField("accepted enrollment must have worker_id".into()));
+                return Err(ValidationError::InvalidField(
+                    "accepted enrollment must have worker_id".into(),
+                ));
             }
             if self.assigned_limits.is_none() {
-                return Err(ValidationError::InvalidField("accepted enrollment must have assigned_limits".into()));
+                return Err(ValidationError::InvalidField(
+                    "accepted enrollment must have assigned_limits".into(),
+                ));
             }
         } else {
             if self.error.is_none() {
-                return Err(ValidationError::InvalidField("rejected enrollment must have error".into()));
+                return Err(ValidationError::InvalidField(
+                    "rejected enrollment must have error".into(),
+                ));
             }
         }
         Ok(())

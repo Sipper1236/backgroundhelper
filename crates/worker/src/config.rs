@@ -1,13 +1,13 @@
 //! Worker configuration management.
 
+use bg_helper_policy::LimitsBuilder;
+use bg_helper_protocol::resource::{PowerPolicy, ResourceLimits, SharingSchedule};
+use bg_helper_protocol::validation::Validatable;
+use dirs;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use bg_helper_protocol::resource::{ResourceLimits, PowerPolicy, SharingSchedule};
-use bg_helper_protocol::validation::Validatable;
-use bg_helper_policy::LimitsBuilder;
-use dirs;
-use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -52,7 +52,7 @@ impl ConfigManager {
         } else {
             WorkerConfig::default()
         };
-        
+
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             config_path,
@@ -69,10 +69,10 @@ impl ConfigManager {
 
     /// Load config from file.
     async fn load_config(path: &PathBuf) -> Result<WorkerConfig, String> {
-        let content = tokio::fs::read_to_string(path).await
+        let content = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| format!("Failed to read config: {}", e))?;
-        toml::from_str(&content)
-            .map_err(|e| format!("Failed to parse config: {}", e))
+        toml::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))
     }
 
     /// Save config to file.
@@ -80,16 +80,18 @@ impl ConfigManager {
         let config = self.config.read().await;
         let content = toml::to_string_pretty(&*config)
             .map_err(|e| format!("Failed to serialize config: {}", e))?;
-        
+
         // Ensure parent directory exists
         if let Some(parent) = self.config_path.parent() {
-            tokio::fs::create_dir_all(parent).await
+            tokio::fs::create_dir_all(parent)
+                .await
                 .map_err(|e| format!("Failed to create config dir: {}", e))?;
         }
-        
-        tokio::fs::write(&self.config_path, content).await
+
+        tokio::fs::write(&self.config_path, content)
+            .await
             .map_err(|e| format!("Failed to write config: {}", e))?;
-        
+
         Ok(())
     }
 
@@ -142,7 +144,8 @@ impl ConfigManager {
             c.worker_id = None;
             c.coordinator_url = None;
             c.enrollment_token = None;
-        }).await
+        })
+        .await
     }
 
     /// Build limits interactively.
@@ -183,20 +186,20 @@ mod tests {
     async fn test_config_manager() {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("worker.toml");
-        
+
         let config = WorkerConfig {
             worker_name: "test-worker".into(),
             ..Default::default()
         };
-        
+
         let content = toml::to_string_pretty(&config).unwrap();
         tokio::fs::write(&config_path, content).await.unwrap();
-        
+
         let manager = ConfigManager {
             config: Arc::new(RwLock::new(config)),
             config_path: config_path.clone(),
         };
-        
+
         let loaded = manager.get().await;
         assert_eq!(loaded.worker_name, "test-worker");
     }
@@ -209,7 +212,7 @@ mod tests {
             .ram_limit(2_000_000_000)
             .build()
             .unwrap();
-        
+
         assert_eq!(limits.cpu_max_cores, Some(2));
         assert_eq!(limits.cpu_max_utilization_pct, Some(75));
     }
