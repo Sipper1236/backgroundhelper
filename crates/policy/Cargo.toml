@@ -1,0 +1,16 @@
+[package]
+name = "bg-helper-policy"
+version = "0.1.0"
+edition = "2021"
+description = "Pure local resource-policy evaluation for BackgroundHelper"
+
+[dependencies]
+bg-helper-protocol = { path = "../protocol" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+sysinfo = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+dirs = "5.0"

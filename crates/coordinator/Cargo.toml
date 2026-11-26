@@ -1,0 +1,24 @@
+[package]
+name = "bg-helper-coordinator"
+version = "0.1.0"
+edition = "2021"
+description = "Coordinator for BackgroundHelper - job state and dashboard interface"
+
+[dependencies]
+bg-helper-protocol = { path = "../protocol" }
+bg-helper-policy = { path = "../policy" }
+bg-helper-scheduler = { path = "../scheduler" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+sqlx = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+rand = "0.8"

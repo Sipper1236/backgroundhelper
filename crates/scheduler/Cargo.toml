@@ -1,0 +1,14 @@
+[package]
+name = "bg-helper-scheduler"
+version = "0.1.0"
+edition = "2021"
+description = "Pure job placement and fairness logic for BackgroundHelper"
+
+[dependencies]
+bg-helper-protocol = { path = "../protocol" }
+bg-helper-policy = { path = "../policy" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }

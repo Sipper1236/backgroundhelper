@@ -1,0 +1,25 @@
+[package]
+name = "bg-helper-worker"
+version = "0.1.0"
+edition = "2021"
+description = "Worker for BackgroundHelper - owner-visible local workload manager"
+
+[dependencies]
+bg-helper-protocol = { path = "../protocol" }
+bg-helper-policy = { path = "../policy" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+sysinfo = { workspace = true }
+dirs = "5.0"
+rand = "0.8"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3.10"
